@@ -1,0 +1,38 @@
+# Local infrastructure. Profiles:
+#   core     — postgres (default; `make db-up`)
+#   obs      — grafana, loki, victoriametrics, tempo, alloy, glitchtip   (day 21+)
+#   openfga  — openfga + its postgres                                    (day 16)
+#   nats     — nats-server for the events NATS adapter                   (day 8+)
+#
+# Services are added to their profile the day they are built; an empty profile is not
+# declared here so `docker compose --profile x up` fails loudly instead of doing nothing.
+
+name: scaffold
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    profiles: [core]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-scaffold}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-scaffold}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Mirrors what we will set on RDS; keeps local behaviour honest.
+    command:
+      - postgres
+      - -c
+      - log_min_duration_statement=250ms
+      - -c
+      - max_connections=100
+
+volumes:
+  postgres-data:

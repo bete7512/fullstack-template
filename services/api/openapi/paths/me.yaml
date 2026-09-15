@@ -1,0 +1,22 @@
+# /v1/me: the caller's own profile.
+
+me:
+  get:
+    operationId: getMe
+    tags: [users]
+    summary: Get the current user
+    description: Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '200':
+        description: The authenticated user.
+        content:
+          application/json:
+            schema:
+              $ref: './users.yaml#/components/schemas/User'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'

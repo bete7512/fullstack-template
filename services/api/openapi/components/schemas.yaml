@@ -1,0 +1,28 @@
+# Shared schemas only. Resource schemas live in their paths/<resource>.yaml file.
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error, message, code]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+          example: RESOURCE_NOT_FOUND
+        message:
+          type: string
+          example: user not found
+        code:
+          type: integer
+          description: HTTP status.
+          example: 404
+        fields:
+          type: object
+          description: Field name to validation message.
+          additionalProperties:
+            type: string
+          example:
+            password: must be at least 12 characters
+        request_id:
+          type: string
+          example: 8f1c2a9d-3b7e-4f5a-9c1d-2e3f4a5b6c7d

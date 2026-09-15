@@ -1,0 +1,78 @@
+# golangci-lint v2 configuration. Verify with `golangci-lint config verify`.
+#
+# Philosophy: the standard high-signal set plus a deliberate handful that catch real bugs
+# in an HTTP + Postgres service (unclosed bodies/rows, error wrapping, swallowed errors,
+# security smells). No style bikeshedding linters (line length, function length, etc.).
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - misspell
+    - unconvert
+    - unparam
+    - gocritic
+    - revive
+    - bodyclose      # http.Response.Body must be closed
+    - errorlint      # errors.Is/As instead of == and type assertions on wrapped errors
+    - nilerr         # returning nil when err != nil
+    - sqlclosecheck  # sql.Rows / sql.Stmt closed
+    - rowserrcheck   # rows.Err() checked after iteration
+    - gosec
+    - copyloopvar    # Go 1.22+ per-iteration loop vars make the old copy redundant
+    - testifylint
+  settings:
+    govet:
+      enable:
+        - nilness
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+      # hugeParam: Deps structs are passed by value on purpose.
+      # unnamedResult: named results are a readability choice, not a defect.
+      disabled-checks: [hugeParam, unnamedResult]
+    revive:
+      rules:
+        - name: exported
+          # Package-qualified names (apperr.AppError, httpx.Server) read better than
+          # de-stuttered ones; the stutter check fights that convention.
+          arguments: [disableStutteringCheck]
+    rowserrcheck:
+      # pgx is the driver in this repo; database/sql is still checked by default.
+      packages:
+        - github.com/jackc/pgx/v5
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling      # Close/Write on well-known types in defer etc.
+      - common-false-positives
+    rules:
+      # Tests may ignore cleanup errors and use fixed test inputs gosec dislikes.
+      - path: _test\.go
+        linters: [errcheck, gosec, gocritic]
+    paths:
+      - services/.*/gen/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/bete7512/scaffold
+  exclusions:
+    generated: lax
+    paths:
+      - services/.*/gen/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

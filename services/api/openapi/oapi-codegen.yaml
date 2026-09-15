@@ -1,0 +1,35 @@
+# oapi-codegen v2 configuration (`make gen-openapi`). Input: gen/openapi/openapi.bundle.yaml,
+# produced from api/openapi/ by scripts/openapi-bundle. Schema: https://github.com/oapi-codegen/oapi-codegen/blob/main/configuration-schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/HEAD/configuration-schema.json
+package: openapi
+# No `output:` here on purpose: oapi-codegen's -o flag only applies when the config has
+# none, and the output path differs by caller (repo root for the Makefile, gen/openapi for
+# `go generate`). Both pass -o explicitly.
+
+generate:
+  # Go 1.22+ ServeMux router (ADR 0001) — no chi/gin/echo dependency.
+  std-http-server: true
+  # Plain ServerInterface (w, r, path params): handlers own decoding, writing, flushing and
+  # streaming; the generated DTOs are the contract. Strict mode was tried and
+  # rejected as too abstracted (ADR 0002).
+  strict-server: false
+  models: true
+  # Generated Go client, used by e2e tests and later by the worker.
+  client: true
+  # Embeds the bundled spec; served at /openapi.json.
+  embedded-spec: true
+
+output-options:
+  # Only emit types reachable from an operation; dead schemas never reach gen/.
+  skip-prune: false
+  # `format: email` stays in the spec for docs and clients, but generates a plain string.
+  # The default (openapi_types.Email) validates inside UnmarshalJSON, where encoding/json
+  # has already lost the field name, so every email field would need a special case to
+  # report which one failed. Email validity is a business rule: the service checks it
+  # and names the field in apperr.NewValidation, like every other field.
+  type-mapping:
+    string:
+      formats:
+        email:
+          type: string
+

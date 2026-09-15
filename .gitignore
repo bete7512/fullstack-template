@@ -1,0 +1,33 @@
+# local env
+.env
+.env.*
+!.env.example
+
+# build / tool output
+bin/
+tmp/
+coverage.out
+coverage.html
+*.test
+*.prof
+
+# editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# node
+node_modules/
+apps/web/.next/
+
+# terraform
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate
+infra/terraform/**/*.tfstate.backup
+infra/terraform/**/.terraform.lock.hcl
+.dev
+docs
+
+# personal Claude instructions (never committed)
+CLAUDE.local.md
