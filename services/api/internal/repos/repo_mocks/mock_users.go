@@ -42,6 +42,20 @@ func (m *MockUserRepo) EXPECT() *MockUserRepoMockRecorder {
 	return m.recorder
 }
 
+// BumpUserTokenVersion mocks base method.
+func (m *MockUserRepo) BumpUserTokenVersion(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BumpUserTokenVersion", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BumpUserTokenVersion indicates an expected call of BumpUserTokenVersion.
+func (mr *MockUserRepoMockRecorder) BumpUserTokenVersion(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BumpUserTokenVersion", reflect.TypeOf((*MockUserRepo)(nil).BumpUserTokenVersion), ctx, id)
+}
+
 // CountUsers mocks base method.
 func (m *MockUserRepo) CountUsers(ctx context.Context, opts repos.ListUsersOpts) (int, error) {
 	m.ctrl.T.Helper()

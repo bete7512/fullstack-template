@@ -73,7 +73,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	defer core.Close()
 
-	h, err := handlers.New(handlers.Deps{Users: core.Users, DB: core.Pool, Logger: log})
+	h, err := handlers.New(handlers.Deps{Users: core.Users, Auth: core.Auth, DB: core.Pool, Logger: log})
 	if err != nil {
 		return err
 	}

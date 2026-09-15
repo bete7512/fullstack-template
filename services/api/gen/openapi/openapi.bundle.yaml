@@ -125,6 +125,19 @@ components:
       required:
         - status
       type: object
+    LoginRequest:
+      properties:
+        email:
+          example: ada@example.com
+          format: email
+          type: string
+        password:
+          format: password
+          type: string
+      required:
+        - email
+        - password
+      type: object
     Readiness:
       properties:
         checks:
@@ -140,6 +153,33 @@ components:
       required:
         - status
         - checks
+      type: object
+    RefreshTokenRequest:
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+      type: object
+    TokenResponse:
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          description: Seconds until the access token expires.
+          example: 900
+          type: integer
+        refreshToken:
+          type: string
+        tokenType:
+          enum:
+            - Bearer
+          type: string
+      required:
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
       type: object
     UpdateUserRequest:
       properties:
@@ -246,6 +286,96 @@ paths:
       summary: Readiness probe
       tags:
         - system
+  /v1/auth/login:
+    post:
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: Tokens for the new session.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security: []
+      summary: Log in with email and password
+      tags:
+        - auth
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+        required: true
+      responses:
+        "204":
+          description: Session ended.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security: []
+      summary: End the session of a refresh token
+      tags:
+        - auth
+  /v1/auth/logout-all:
+    post:
+      description: Also invalidates every access token issued so far.
+      operationId: logoutAll
+      responses:
+        "204":
+          description: All sessions ended.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: End every session of the current user
+      tags:
+        - auth
+  /v1/auth/refresh:
+    post:
+      description: The refresh token is single-use. Reusing one ends its session.
+      operationId: refreshToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: New tokens for the same session.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security: []
+      summary: Exchange a refresh token for new tokens
+      tags:
+        - auth
   /v1/me:
     get:
       description: Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -469,5 +599,7 @@ servers:
 tags:
   - description: Liveness / readiness probes used by the load balancer and orchestrator.
     name: system
+  - description: Login, token refresh and logout.
+    name: auth
   - description: User registration and profile.
     name: users

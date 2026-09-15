@@ -10,9 +10,9 @@ A new business area with its own data is a new `services/<name>/` (copy the `ser
 ## Steps
 
 1. **Table** (new resource only): run the `add-migration` skill. Columns `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`, `created_at`/`updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`, plus trigger `update_projects_updated_at` on `update_updated_at_column()`.
-2. **Spec**: add path items to `services/api/openapi/paths/projects.yaml`, reference each from `openapi.yaml` `paths:` (plus a `tags:` entry). `Project`, `CreateProjectRequest`, `UpdateProjectRequest` schemas and the `ProjectId` param go in the same file under `components:` with local `#/components/...` refs (camelCase, `required:` list; optional fields generate pointers; `ProjectId` copies `UserId`: `type: integer, format: int64, minimum: 1`); id properties are `type: integer, format: int64`. Every error response is a `$ref` into `../components/responses.yaml`; `components/` holds shared pieces only. Run `make lint-openapi && make gen-openapi`; the compiler then lists the missing handler methods.
+2. **Spec**: add path items to `services/api/openapi/paths/projects.yaml`, reference each from `openapi.yaml` `paths:` (plus a `tags:` entry). `Project`, `CreateProjectRequest`, `UpdateProjectRequest` schemas and the `ProjectId` param go in the same file under `components:` with local `#/components/...` refs (camelCase, `required:` list; optional fields generate pointers; `ProjectId` copies `UserId`: `type: integer, format: int64, minimum: 1`); id properties are `type: integer, format: int64`. Every error response is a `$ref` into `../components/responses.yaml`; `components/` holds shared pieces only. Every op declares `security`: public → `security: []`; protected → `bearerAuth` + `cookieAuth` (plus a `401` response). The auth middleware reads it; nothing else to wire. Run `make lint-openapi && make gen-openapi`; the compiler then lists the missing handler methods.
 3. **Code**, in this order, under `services/api/internal/`: `models/project.go` (struct with `db:` tags) → `repos/projects.go` → `services/projects.go` → `handlers/projects.go`.
-4. **Wiring + mocks**: in `services/api/internal/app/core.go` add `Projects services.ProjectService` to `app.Core` and build repo → service into it in `NewCore`. Add a `Projects services.ProjectService` field to `handlers.Deps` and its nil check in `handlers.New`, then pass `Projects: core.Projects` into `handlers.Deps` in `services/api/cmd/api/main.go`. Run `go generate ./services/api/internal/...`.
+4. **Wiring + mocks**: in `services/api/internal/app/core.go` add `Projects services.ProjectService` to `app.Core` and build repo → service into it in `NewCore`. Add a `Projects services.ProjectService` field to `handlers.Deps` (today `Users, Auth, DB, Logger`) and its nil check in `handlers.New`, then pass `Projects: core.Projects` into `handlers.Deps` in `services/api/cmd/api/main.go`. Run `go generate ./services/api/internal/...`.
 5. **Tests** (table-driven at all three layers, see Tests), then **Done**: `make gen-openapi` → `go generate ./services/api/internal/...` → `make fmt` → `make lint` → `make test` → `make test-integration` → `make gen-check` → `verify-change` skill for a live curl.
 
 ## Spec (`paths/projects.yaml`)
@@ -140,6 +140,19 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 
 Path-param methods take `id openapi.ProjectId` (an alias of `int64`); model `ID int64 \`db:"id"\``. Get and Update write 200 with `toProjectDTO(p *models.Project) openapi.Project`, which goes at the bottom of the file. Delete ends with `w.WriteHeader(http.StatusNoContent)`.
 
+Protected routes needing the caller (copy `GetMe`):
+
+```go
+claims, ok := auth.ClaimsFrom(r.Context())
+if !ok {
+	httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+	return
+}
+// pass claims.UserID to the service
+```
+
+- Never read `Authorization` or cookies in a handler; the middleware already enforced the spec's `security`.
+
 ## Tests
 
 **Repo** (`services/api/internal/repos/projects_test.go`, `//go:build integration`, `package repos_test`): copy the `UserRepoTestSuite` struct and `SetupSuite`. **No `TestMain`**: users_test.go already declares it in this package.
@@ -206,6 +219,9 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 - Cover validation → 422 (no repo call), `ErrConflict` → 409, `ErrNotFound` → 404, `errors.New("boom")` → 500, and success.
 
 **Handler** (`services/api/internal/handlers/handler_test.go`): add `projects *service_mocks.MockProjectService` (`github.com/bete7512/scaffold/services/api/internal/services/service_mocks`) to `fixture`, create it in `newFixture`, and pass `Projects: f.projects`. Append `TestEndpoints` rows for: success per op, malformed JSON 400, non-numeric id (`/v1/projects/nope`) 400, 404, 422. Build paths with `strconv.FormatInt(id, 10)`.
+- `f.do` already sends `Authorization: Bearer good`; the fixture's `auth` mock maps `"good"` to `ada.ID`.
+- Use `f.send(req)` for requests without a token or with a cookie.
+- Add a `TestAuthentication` row only when the new route's access differs (public, optional, or reads claims in a new way).
 
 ## Checklist
 
@@ -220,4 +236,5 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 - Editing `services/api/gen/` by hand, or skipping `go generate` after an interface change (the stale mock breaks the build).
 - Scenario-per-method repo tests (`TestNotFound`), truncating in `SetupTest` (rows leak between `s.Run` cases), redeclaring `TestMain` in a second `repos_test` file (compile error under `-tags integration`), or adding id helpers for found/not-found cases (use a `seed bool` field and `int64(-1)`).
 - Assuming `format: email` validates (it generates a plain `string`, so validate in the service), setting `updated_at` in SQL (the trigger owns it), or forgetting the fixture's `Projects:` field or the `Core.Projects` → `handlers.Deps` pass in `services/api/cmd/api/main.go`.
+- Omitting `security`: the op then requires login and `TestEveryOperationDeclaresSecurity` fails, so public ops must say `security: []`. Or checking tokens in a handler instead of `auth.ClaimsFrom`.
 - Putting resource schemas or params in `components/*.yaml` (shared pieces only), or reusing a schema name already defined in another file (they collide in the bundle).

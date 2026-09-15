@@ -4,7 +4,7 @@
 
 Go 1.26 + Postgres 16 API template, module `github.com/bete7512/scaffold`, one Go module.
 Spec-first OpenAPI (oapi-codegen, std `net/http` ServeMux), hand-written pgx repos, goose Go migrations.
-One service today, `services/api` (users CRUD + health): two binaries, `services/api/cmd/api` and `services/api/cmd/worker` (shell), share its `internal/`. Makefile is the only entrypoint.
+One service today, `services/api` (users CRUD, authentication, health): two binaries, `services/api/cmd/api` and `services/api/cmd/worker` (shell), share its `internal/`. Makefile is the only entrypoint.
 
 ## Commands
 
@@ -37,8 +37,8 @@ A service = a business area that owns its data; its processes live inside it.
 services/api/                        the current service (users); future ones copy this shape (e.g. services/billing)
   cmd/api/main.go                    HTTP process: config → app.NewCore → handlers → server (or -m migrate)
   cmd/worker/main.go                 background process: config → app.NewCore → waits for SIGTERM (job handlers Day 9)
-  internal/app/core.go               composition root shared by this service's binaries: pool, repos, hasher, services
-  internal/config/                   service config: embeds pkg/config.Config, adds Auth (AUTH_ARGON2_*)
+  internal/app/core.go               composition root shared by this service's binaries: pool, repos, hasher, tokens, services
+  internal/config/                   service config: embeds pkg/config.Config, adds Auth (AUTH_ARGON2_*, AUTH_JWT_SIGNING_KEY, AUTH_ISSUER, AUTH_*_TOKEN_TTL)
   internal/handlers/                 HTTP only; imported only by cmd/api
   internal/{services,repos,models}/  shared by api and worker (+ repos/repo_mocks, services/service_mocks)
   migrations/                        goose Go migrations NNNN_name.go + migration.go registry; migrations.Up(ctx, pool)
@@ -47,7 +47,7 @@ services/api/                        the current service (users); future ones co
   openapi/components/*.yaml          shared only: Error, error responses
   gen/openapi/                       generated: openapi.gen.go, openapi.bundle.yaml (committed, never edit)
 pkg/apperr            sentinels + AppError
-pkg/auth              PasswordHasher (argon2id)
+pkg/auth              PasswordHasher (argon2id), Tokens (EdDSA JWT), NewRefreshToken/HashRefreshToken, WithClaims/ClaimsFrom
 pkg/config            common env → Config (App, HTTP, Log, DB), validated at boot
 pkg/db                pool (+retries), DBTX, WithTx, HandleError
 pkg/httpx             server, middleware, WriteJSON/WriteError/DecodeJSON, /docs, 404
@@ -75,20 +75,21 @@ Planned, absent: `services/api/internal/jobs` (worker event handlers, Day 9), Do
 
 1. `httpx.Default`: `RequestID` → `Logger` (puts logger in ctx) → `Recover` → `MaxBody`.
 2. Generated `openapi.HandlerWithOptions` binds path/query params; bind failure → `ErrorHandlerFunc` → 400 `BAD_REQUEST`.
-3. Handler decodes body into generated DTO, maps to model, calls service.
-4. Service validates, calls repo interface, classifies repo errors into `*apperr.AppError`.
-5. Repo runs SQL via `db.DBTX`; driver errors → `db.HandleError` → wrapped sentinels.
-6. Handler writes `httpx.WriteJSON` or `httpx.WriteError(w, r, err)`; `WriteError` records err for the access log line.
+3. Auth middleware (`handlers/authn.go`) enforces the op's spec `security`, puts claims in ctx (see Authentication).
+4. Handler decodes body into generated DTO, maps to model, calls service.
+5. Service validates, calls repo interface, classifies repo errors into `*apperr.AppError`.
+6. Repo runs SQL via `db.DBTX`; driver errors → `db.HandleError` → wrapped sentinels.
+7. Handler writes `httpx.WriteJSON` or `httpx.WriteError(w, r, err)`; `WriteError` records err for the access log line.
 
 ## Layer rules
 
 | Layer | Owns | May import | Must not |
 |---|---|---|---|
-| `handlers` | implement `openapi.ServerInterface` with raw `(w, r, params)`; DTO⇄model mapping (`toUserDTO`) | `services/api/gen/openapi`, `models`, `services` (interfaces), `pkg/httpx`, `pkg/apperr`; `repos` **only** for `ListXOpts` | SQL, pgx, status mapping, logging |
+| `handlers` | implement `openapi.ServerInterface` with raw `(w, r, params)`; DTO⇄model mapping (`toUserDTO`) | `services/api/gen/openapi`, `models`, `services` (interfaces), `pkg/httpx`, `pkg/apperr`, `pkg/auth` (`ClaimsFrom`); `repos` **only** for `ListXOpts` | SQL, pgx, status mapping, logging, token parsing |
 | `services` | validation (`apperr.NewValidation`), business rules, repo-error classification | `models`, `repos` (consume `repos.XRepo` directly), `pkg/apperr`, `pkg/auth` | HTTP, DTOs, SQL, logging (keep `Logger` in Deps, unused) |
 | `repos` | hand-written SQL, `XSortColumns` whitelist | `models`, pgx, `pkg/db`, `pkg/apperr`, `pkg/sorting` | business rules, HTTP, logging |
 | `models` | structs with `db:"col"` tags (also row types) | stdlib | everything else |
-| `app` | `Core`: pool, repos, hasher, services | `pkg/*`, `repos`, `services` | `handlers` (api-only) |
+| `app` | `Core`: pool, repos, hasher, `auth.Tokens`, services | `pkg/*`, `repos`, `services` | `handlers` (api-only) |
 
 - `services/api/internal/handlers` is imported only by `services/api/cmd/api`; `services/api/internal/app` never imports handlers.
 
@@ -116,9 +117,10 @@ Repo rules (`services/api/internal/repos/<resource>.go`):
 
 - One `XDeps` struct; `NewX(deps XDeps) (X, error)`; single `if deps.A == nil || deps.B == nil` check returning `errors.New`.
 - Services/repos return the interface; `handlers.New` returns `*Handler`. No DI framework.
-- `services/api/internal/app/core.go` is the service's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Users, ...}`; `Close()` releases the pool.
-- Config: `services/api/internal/config` embeds `pkg/config.Config` (App, HTTP, Log, DB) and adds service settings (`Auth`, `AUTH_ARGON2_*`).
-- `services/api/cmd/api/main.go`: config → logger → `app.NewCore` → `handlers.New(handlers.Deps{...})` → router → server.
+- `services/api/internal/app/core.go` is the service's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Users, Auth}`; `Close()` releases the pool.
+- `NewCore` builds `userRepo` + `sessionRepo`, the argon2id hasher, `auth.NewTokens(seed, issuer, ttl)`, then `UserService` (Users, Sessions, Hasher) and `AuthService` (Users, Sessions, Hasher, Tokens, RefreshTokenTTL).
+- Config: `services/api/internal/config` embeds `pkg/config.Config` (App, HTTP, Log, DB) and adds service settings (`Auth`: `AUTH_ARGON2_*`, `AUTH_JWT_SIGNING_KEY`, `AUTH_ISSUER`, `AUTH_ACCESS_TOKEN_TTL`, `AUTH_REFRESH_TOKEN_TTL`).
+- `services/api/cmd/api/main.go`: config → logger → `app.NewCore` → `handlers.New(handlers.Deps{Users, Auth, DB, Logger})` → router → server.
 - `services/api/cmd/worker/main.go`: config → logger → `app.NewCore` → job handlers (Day 9) → wait for SIGTERM.
 
 Wiring a new resource `Project`:
@@ -160,6 +162,25 @@ Body (`httpx.ErrorResponse`, `application/json`): `{"error":"RESOURCE_NOT_FOUND"
 
 Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, Error ≥ 500) with `method, route (r.Pattern), path, status, duration_ms, error`. Never log-and-return; return the error.
 
+## Authentication
+
+- `pkg/auth.Tokens`: Ed25519 (EdDSA) JWT access tokens with `sub`, `tv` (token_version), `jti`, `iat`, `exp`, `iss`; `Parse` accepts only EdDSA, errors wrap `auth.ErrInvalidToken`.
+- Refresh tokens are opaque random strings (`auth.NewRefreshToken`); only their SHA-256 (`auth.HashRefreshToken`) is stored.
+- Table (`migrations/0002_create_sessions.go`): `sessions`, one row per login with `refresh_token_hash`, `previous_token_hash`, `expires_at`, `revoked_at`; BIGINT identity id.
+- `repos.SessionRepo`: `CreateSession`, `FindSessionByToken` (matches current or previous hash), `RotateRefreshToken` (one UPDATE that moves current to previous; stale or revoked → `ErrNotFound`), `RevokeSession`, `RevokeUserSessions`.
+- Refresh with a token matching `previous_token_hash` counts as reuse and revokes the session. Tokens older than one rotation are unknown: rejected with 401, session untouched.
+- `services.AuthService.Login`: one 401 message for unknown email, wrong password or no password; on an unknown email it still hashes the password (result discarded) so timing matches.
+- `Refresh` rotates; reuse or a lost concurrent rotation revokes the session → 401; expired token or revoked session → 401. `Logout` is idempotent.
+- `LogoutAll` and `UserService.ChangePassword` bump `users.token_version` and revoke all sessions.
+- `Authenticate` parses the token and compares `tv` with the user's `token_version` (one DB read per request).
+- Middleware `handlers/authn.go` runs in the generated router's `Middlewares`, reads each op's `security` from `openapi.GetSpec()`, keyed by `r.Pattern`.
+- Modes: `security: []` anonymous; `bearerAuth`/`cookieAuth` required; a `- {}` alternative optional; route missing from the spec required; op omitting `security` inherits root, and with no root it is required (fail closed). A bad token is 401 even on optional routes.
+- Token source: `Authorization: Bearer` or the `access_token` cookie. Claims go into ctx via `auth.WithClaims`.
+- Routes: public `POST /v1/auth/login|refresh|logout`; authenticated `POST /v1/auth/logout-all`, `GET /v1/me`. Body `{accessToken, refreshToken, tokenType: "Bearer", expiresIn}`.
+- Config: `AUTH_JWT_SIGNING_KEY` required, base64 of 32 bytes (`openssl rand -base64 32`); `AUTH_ISSUER` (scaffold), `AUTH_ACCESS_TOKEN_TTL` (15m), `AUTH_REFRESH_TOKEN_TTL` (720h).
+- **Rule:** a protected route is declared by `security` in the spec. Never check tokens in handlers; read `auth.ClaimsFrom(r.Context())`, `!ok` → `apperr.NewUnauthorized` (copy `GetMe`).
+- No authorization yet: any logged-in user can update or delete any user (Day 16).
+
 ## OpenAPI workflow
 
 1. Edit `services/api/openapi/paths/<resource>.yaml`: path items as top-level keys (`users:`, `user:`); request/response schemas and resource params in the same file's `components:` block, ref'd locally (`'#/components/schemas/User'`, `'#/components/parameters/UserId'`).
@@ -168,7 +189,7 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
    - Component names must be unique across all files: the bundler names each by its last pointer segment, so duplicates collide.
 2. New path file/route → add under `paths:` in `services/api/openapi/openapi.yaml`.
 3. Every error response `$ref`s `components/responses.yaml` (`BadRequest, ValidationFailed, Unauthorized, NotFound, Conflict, Unavailable, InternalError`).
-4. Public ops set `security: []`; others list `bearerAuth` and `cookieAuth` (not enforced yet).
+4. Public ops set `security: []`; protected ops list `bearerAuth` and `cookieAuth`. Enforced by `handlers/authn.go`. An op that omits `security` requires login (fail closed), and `TestEveryOperationDeclaresSecurity` fails the build until it declares one.
 5. `make gen-openapi` (optionally `make lint-openapi`; both take `SERVICE=`) regenerates `services/api/gen/openapi`; build fails until `Handler` implements the new method.
 - Non-strict server (`strict-server: false`): handler owns decode/write.
 - `format: email` generates `string`; email and length validation live in services.
@@ -201,7 +222,7 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
 |---|---|
 | services | `services_test` package, testify `suite`, `repo_mocks.NewMockXRepo(gomock.NewController(s.T()))`, argon2 low params (`Memory: 8*1024, Iterations: 1`), assert `*apperr.AppError.Code`; table of cases where a method has several inputs |
 | repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (`github.com/bete7512/scaffold/services/api/migrations`) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/users_test.go`); no `t.Parallel` |
-| handlers | one `newFixture(t)` with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; table test through the router asserting status and `httpx.ErrorResponse.Error` |
+| handlers | one `newFixture(t)` with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `auth` mock accepts token `"good"` (→ `ada.ID`); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie); `TestAuthentication` covers missing, invalid, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error` |
 | pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger`, `pkg/auth`, `pkg/sorting`) |
 
 Shape every test the same way: one test per function or repo method, `tests := []struct{ name; inputs; want; wantErr error }`, `s.Run(tt.name, ...)` per case, then `seed → call → if tt.wantErr != nil { ErrorIs; return } → assert`. Fixtures come from a seeder helper, never copy-pasted setup. Not-found cases use `int64(-1)`; created ids are asserted with `s.Positive(x.ID)`; handler paths use `strconv.FormatInt(id, 10)`.
@@ -238,7 +259,8 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 - No hand edits under `services/*/gen/`.
 - No imports across services (`services/a` → `services/b/...`), no shared tables between services.
 - No migrations at app boot.
-- No `x-` custom spec extensions for auth; auth will read `security`.
+- No `x-` custom spec extensions for auth; auth reads `security`.
+- No token parsing or `Authorization` header checks in handlers or services; the middleware owns it, handlers read `auth.ClaimsFrom`.
 - No Taskfile.
 
 ## Skills
@@ -252,8 +274,8 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 
 ## Planned, not built (do not invent)
 
-- Auth: JWT access + refresh tokens, OIDC login, spec-driven auth middleware reading `security`; `/v1/me` returns 401 stub.
-- Authz: `Authorizer` interface, RBAC adapter + OpenFGA adapter.
+- Auth, remaining: setting `access_token` cookies on login (with the frontend), rate limiting on `/v1/auth/*` (Day 10), email verification + forgot/reset password (Days 9–10), Google login (Day 11).
+- Authz (Day 16): `Authorizer` interface, RBAC adapter + OpenFGA adapter.
 - Worker job handlers (`services/api/internal/jobs`), `pkg/events`, outbox, mailer.
 - Observability: OTel, metrics, Sentry/GlitchTip, dashboards, runbooks.
 - Infra: Terraform, Ansible, Dockerfiles/ECS, gRPC (`gen-proto` is a stub).

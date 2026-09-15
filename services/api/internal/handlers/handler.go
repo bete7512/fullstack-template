@@ -20,6 +20,7 @@ type Pinger interface {
 // Deps are the handler dependencies; all are required.
 type Deps struct {
 	Users  services.UserService
+	Auth   services.AuthService
 	DB     Pinger
 	Logger *slog.Logger
 }
@@ -33,8 +34,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Users == nil || deps.DB == nil || deps.Logger == nil {
-		return nil, errors.New("handlers: Users, DB and Logger are required")
+	if deps.Users == nil || deps.Auth == nil || deps.DB == nil || deps.Logger == nil {
+		return nil, errors.New("handlers: Users, Auth, DB and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

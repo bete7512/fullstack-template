@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/bete7512/scaffold/pkg/apperr"
+	"github.com/bete7512/scaffold/pkg/auth"
 	"github.com/bete7512/scaffold/pkg/httpx"
 	"github.com/bete7512/scaffold/services/api/gen/openapi"
 	"github.com/bete7512/scaffold/services/api/internal/models"
@@ -112,9 +113,19 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GetMe returns the current user. It returns 401 until authentication exists.
+// GetMe returns the authenticated user.
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+	user, err := h.deps.Users.GetUser(r.Context(), claims.UserID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
 }
 
 func toUserDTO(u *models.User) openapi.User {

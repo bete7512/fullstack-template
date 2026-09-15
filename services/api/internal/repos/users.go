@@ -24,6 +24,7 @@ type UserRepo interface {
 	CountUsers(ctx context.Context, opts ListUsersOpts) (int, error)
 	UpdateUser(ctx context.Context, user *models.User) error
 	UpdateUserPassword(ctx context.Context, id int64, passwordHash string) error
+	BumpUserTokenVersion(ctx context.Context, id int64) error
 	DeleteUser(ctx context.Context, id int64) error
 }
 
@@ -151,6 +152,18 @@ func (r *userRepo) UpdateUser(ctx context.Context, user *models.User) error {
 func (r *userRepo) UpdateUserPassword(ctx context.Context, id int64, passwordHash string) error {
 	query := `UPDATE users SET password_hash = @password_hash, token_version = token_version + 1 WHERE id = @id`
 	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"id": id, "password_hash": passwordHash})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
+// BumpUserTokenVersion invalidates every access token issued to the user.
+func (r *userRepo) BumpUserTokenVersion(ctx context.Context, id int64) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET token_version = token_version + 1 WHERE id = @id`, pgx.NamedArgs{"id": id})
 	if err != nil {
 		return db.HandleError(err)
 	}

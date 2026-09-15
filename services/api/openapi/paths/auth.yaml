@@ -1,0 +1,126 @@
+login:
+  post:
+    operationId: login
+    tags: [auth]
+    summary: Log in with email and password
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LoginRequest'
+    responses:
+      '200':
+        description: Tokens for the new session.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenResponse'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+refresh:
+  post:
+    operationId: refreshToken
+    tags: [auth]
+    summary: Exchange a refresh token for new tokens
+    description: The refresh token is single-use. Reusing one ends its session.
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RefreshTokenRequest'
+    responses:
+      '200':
+        description: New tokens for the same session.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenResponse'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+logout:
+  post:
+    operationId: logout
+    tags: [auth]
+    summary: End the session of a refresh token
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RefreshTokenRequest'
+    responses:
+      '204':
+        description: Session ended.
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+logoutAll:
+  post:
+    operationId: logoutAll
+    tags: [auth]
+    summary: End every session of the current user
+    description: Also invalidates every access token issued so far.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '204':
+        description: All sessions ended.
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+        password:
+          type: string
+          format: password
+
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Seconds until the access token expires.
+          example: 900

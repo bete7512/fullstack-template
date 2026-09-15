@@ -24,9 +24,10 @@ const password = "correct horse battery"
 
 type UserServiceSuite struct {
 	suite.Suite
-	users  *repo_mocks.MockUserRepo
-	hasher auth.PasswordHasher
-	svc    services.UserService
+	users    *repo_mocks.MockUserRepo
+	sessions *repo_mocks.MockSessionRepo
+	hasher   auth.PasswordHasher
+	svc      services.UserService
 }
 
 func TestUserServiceSuite(t *testing.T) {
@@ -35,10 +36,12 @@ func TestUserServiceSuite(t *testing.T) {
 
 // SetupSubTest gives every case a fresh mock, so unmet or unexpected calls fail that case.
 func (s *UserServiceSuite) SetupSubTest() {
-	s.users = repo_mocks.NewMockUserRepo(gomock.NewController(s.T()))
+	ctrl := gomock.NewController(s.T())
+	s.users = repo_mocks.NewMockUserRepo(ctrl)
+	s.sessions = repo_mocks.NewMockSessionRepo(ctrl)
 	s.hasher = auth.NewArgon2id(auth.Argon2idParams{Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32})
 	var err error
-	s.svc, err = services.NewUserService(services.UserServiceDeps{Users: s.users, Hasher: s.hasher, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewUserService(services.UserServiceDeps{Users: s.users, Sessions: s.sessions, Hasher: s.hasher, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
 }
 
@@ -267,6 +270,7 @@ func (s *UserServiceSuite) TestChangePassword() {
 					s.True(ok)
 					return nil
 				})
+				s.sessions.EXPECT().RevokeUserSessions(gomock.Any(), id).Return(nil)
 			},
 		},
 		{name: "new password too short", current: password, next: "short", wantStatus: http.StatusUnprocessableEntity, wantFields: []string{"newPassword"}},

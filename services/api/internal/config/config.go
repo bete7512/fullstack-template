@@ -2,8 +2,10 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 
@@ -21,6 +23,17 @@ type Auth struct {
 	Argon2MemoryKiB   uint32 `env:"ARGON2_MEMORY_KIB" envDefault:"19456"`
 	Argon2Iterations  uint32 `env:"ARGON2_ITERATIONS" envDefault:"2"`
 	Argon2Parallelism uint8  `env:"ARGON2_PARALLELISM" envDefault:"1"`
+
+	JWTSigningKey   string        `env:"JWT_SIGNING_KEY"`
+	Issuer          string        `env:"ISSUER"`
+	AccessTokenTTL  time.Duration `env:"ACCESS_TOKEN_TTL" envDefault:"15m"`
+	RefreshTokenTTL time.Duration `env:"REFRESH_TOKEN_TTL" envDefault:"720h"`
+}
+
+// SigningKeySeed returns the decoded ed25519 seed for signing access tokens.
+func (a Auth) SigningKeySeed() []byte {
+	seed, _ := base64.StdEncoding.DecodeString(a.JWTSigningKey)
+	return seed
 }
 
 // Load reads and validates the process environment.
@@ -58,6 +71,12 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.Argon2Parallelism == 0 {
 		errs = append(errs, errors.New("AUTH_ARGON2_PARALLELISM must be positive"))
+	}
+	if len(c.Auth.SigningKeySeed()) != 32 {
+		errs = append(errs, errors.New("AUTH_JWT_SIGNING_KEY must be base64 of 32 random bytes (openssl rand -base64 32)"))
+	}
+	if c.Auth.AccessTokenTTL <= 0 || c.Auth.RefreshTokenTTL <= 0 {
+		errs = append(errs, errors.New("AUTH_ACCESS_TOKEN_TTL and AUTH_REFRESH_TOKEN_TTL must be positive"))
 	}
 	return errors.Join(errs...)
 }

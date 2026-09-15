@@ -9,7 +9,10 @@ import (
 	"github.com/bete7512/scaffold/services/api/internal/config"
 )
 
-const dbURL = "postgres://app:secret@localhost:5432/app"
+const (
+	dbURL      = "postgres://app:secret@localhost:5432/app"
+	signingKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+)
 
 func TestParse(t *testing.T) {
 	tests := []struct {
@@ -17,15 +20,20 @@ func TestParse(t *testing.T) {
 		env      map[string]string
 		wantErrs []string
 	}{
-		{name: "defaults", env: map[string]string{"DATABASE_URL": dbURL}},
+		{name: "defaults", env: map[string]string{"DATABASE_URL": dbURL, "AUTH_JWT_SIGNING_KEY": signingKey}},
 		{
 			name:     "invalid auth settings",
-			env:      map[string]string{"DATABASE_URL": dbURL, "AUTH_ARGON2_MEMORY_KIB": "1024", "AUTH_ARGON2_ITERATIONS": "0"},
+			env:      map[string]string{"DATABASE_URL": dbURL, "AUTH_JWT_SIGNING_KEY": signingKey, "AUTH_ARGON2_MEMORY_KIB": "1024", "AUTH_ARGON2_ITERATIONS": "0"},
 			wantErrs: []string{"AUTH_ARGON2_MEMORY_KIB", "AUTH_ARGON2_ITERATIONS"},
 		},
 		{
+			name:     "missing signing key",
+			env:      map[string]string{"DATABASE_URL": dbURL},
+			wantErrs: []string{"AUTH_JWT_SIGNING_KEY"},
+		},
+		{
 			name:     "shared and service errors together",
-			env:      map[string]string{"DATABASE_URL": dbURL, "APP_ENV": "qa", "AUTH_ARGON2_PARALLELISM": "0"},
+			env:      map[string]string{"DATABASE_URL": dbURL, "AUTH_JWT_SIGNING_KEY": signingKey, "APP_ENV": "qa", "AUTH_ARGON2_PARALLELISM": "0"},
 			wantErrs: []string{"APP_ENV", "AUTH_ARGON2_PARALLELISM"},
 		},
 	}
@@ -42,6 +50,7 @@ func TestParse(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ":8080", cfg.HTTP.Addr)
 			assert.Equal(t, uint32(19456), cfg.Auth.Argon2MemoryKiB)
+			assert.Len(t, cfg.Auth.SigningKeySeed(), 32)
 		})
 	}
 }

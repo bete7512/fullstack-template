@@ -30,9 +30,10 @@ type UserService interface {
 
 // UserServiceDeps are the UserService dependencies; all are required.
 type UserServiceDeps struct {
-	Users  repos.UserRepo
-	Hasher auth.PasswordHasher
-	Logger *slog.Logger
+	Users    repos.UserRepo
+	Sessions repos.SessionRepo
+	Hasher   auth.PasswordHasher
+	Logger   *slog.Logger
 }
 
 type userService struct {
@@ -41,8 +42,8 @@ type userService struct {
 
 // NewUserService returns a UserService or an error if a dependency is missing.
 func NewUserService(deps UserServiceDeps) (UserService, error) {
-	if deps.Users == nil || deps.Hasher == nil || deps.Logger == nil {
-		return nil, errors.New("services: Users, Hasher and Logger are required")
+	if deps.Users == nil || deps.Sessions == nil || deps.Hasher == nil || deps.Logger == nil {
+		return nil, errors.New("services: Users, Sessions, Hasher and Logger are required")
 	}
 	return &userService{deps: deps}, nil
 }
@@ -152,6 +153,9 @@ func (s *userService) ChangePassword(ctx context.Context, id int64, currentPassw
 	}
 	if err := s.deps.Users.UpdateUserPassword(ctx, id, hash); err != nil {
 		return userError(err)
+	}
+	if err := s.deps.Sessions.RevokeUserSessions(ctx, id); err != nil {
+		return apperr.NewInternal(err)
 	}
 	return nil
 }

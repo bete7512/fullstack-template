@@ -25,9 +25,15 @@ func NewRouter(h *Handler, o RouterOptions) (http.Handler, error) {
 		return nil, fmt.Errorf("handlers: load embedded OpenAPI spec: %w", err)
 	}
 
+	doc, err := openapi.GetSpec()
+	if err != nil {
+		return nil, fmt.Errorf("handlers: load embedded OpenAPI spec: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	openapi.HandlerWithOptions(h, openapi.StdHTTPServerOptions{
-		BaseRouter: mux,
+		BaseRouter:  mux,
+		Middlewares: []openapi.MiddlewareFunc{h.authenticate(accessModes(doc))},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, apperr.NewBadRequest("invalid path or query parameter", err))
 		},

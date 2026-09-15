@@ -18,6 +18,8 @@ servers:
 tags:
   - name: system
     description: Liveness / readiness probes used by the load balancer and orchestrator.
+  - name: auth
+    description: Login, token refresh and logout.
   - name: users
     description: User registration and profile.
 
@@ -34,6 +36,14 @@ paths:
     $ref: './paths/users.yaml#/userPassword'
   /v1/me:
     $ref: './paths/me.yaml#/me'
+  /v1/auth/login:
+    $ref: './paths/auth.yaml#/login'
+  /v1/auth/refresh:
+    $ref: './paths/auth.yaml#/refresh'
+  /v1/auth/logout:
+    $ref: './paths/auth.yaml#/logout'
+  /v1/auth/logout-all:
+    $ref: './paths/auth.yaml#/logoutAll'
 
 components:
   securitySchemes:

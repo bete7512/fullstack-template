@@ -198,6 +198,37 @@ func (s *UserRepoTestSuite) TestUpdateUserPassword() {
 	}
 }
 
+func (s *UserRepoTestSuite) TestBumpUserTokenVersion() {
+	tests := []struct {
+		name    string
+		seed    bool
+		wantErr error
+	}{
+		{name: "increments token version", seed: true},
+		{name: "not found", wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			ctx := context.Background()
+			id := int64(-1)
+			if tt.seed {
+				id = s.seed("ada@example.com")[0].ID
+			}
+
+			err := s.repo.BumpUserTokenVersion(ctx, id)
+
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			got, err := s.repo.GetUser(ctx, id)
+			s.Require().NoError(err)
+			s.Equal(int32(1), got.TokenVersion)
+		})
+	}
+}
+
 func (s *UserRepoTestSuite) TestDeleteUser() {
 	tests := []struct {
 		name    string

@@ -54,6 +54,21 @@ func (e ReadinessStatus) Valid() bool {
 	}
 }
 
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the TokenResponseTokenType enum.
+func (e TokenResponseTokenType) Valid() bool {
+	switch e {
+	case Bearer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListUsersParamsSortBy.
 const (
 	CreatedAt ListUsersParamsSortBy = "createdAt"
@@ -144,6 +159,13 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// Email Example: ada@example.com
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 // Readiness defines model for Readiness.
 type Readiness struct {
 	// Checks Example: {"db":"ok"}
@@ -153,6 +175,26 @@ type Readiness struct {
 
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
+
+// RefreshTokenRequest defines model for RefreshTokenRequest.
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+// TokenResponse defines model for TokenResponse.
+type TokenResponse struct {
+	AccessToken string `json:"accessToken"`
+
+	// ExpiresIn Seconds until the access token expires.
+	//
+	// Example: 900
+	ExpiresIn    int                    `json:"expiresIn"`
+	RefreshToken string                 `json:"refreshToken"`
+	TokenType    TokenResponseTokenType `json:"tokenType"`
+}
+
+// TokenResponseTokenType defines model for TokenResponse.TokenType.
+type TokenResponseTokenType string
 
 // UpdateUserRequest defines model for UpdateUserRequest.
 type UpdateUserRequest struct {
@@ -226,6 +268,15 @@ type ListUsersParamsSortBy string
 
 // ListUsersParamsSortDir defines parameters for ListUsers.
 type ListUsersParamsSortDir string
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// LogoutJSONRequestBody defines body for Logout for application/json ContentType.
+type LogoutJSONRequestBody = RefreshTokenRequest
+
+// RefreshTokenJSONRequestBody defines body for RefreshToken for application/json ContentType.
+type RefreshTokenJSONRequestBody = RefreshTokenRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
@@ -324,6 +375,59 @@ type ClientInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// LoginWithBody Log in with email and password
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/login (the `Login` operationId).
+	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Login Log in with email and password
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/login (the `Login` operationId).
+	Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LogoutWithBody End the session of a refresh token
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+	LogoutWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Logout End the session of a refresh token
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+	Logout(ctx context.Context, body LogoutJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LogoutAll End every session of the current user
+	//
+	// Also invalidates every access token issued so far.
+	//
+	// Corresponds with POST /v1/auth/logout-all (the `LogoutAll` operationId).
+	LogoutAll(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshTokenWithBody Exchange a refresh token for new tokens
+	//
+	// The refresh token is single-use. Reusing one ends its session.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+	RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshToken Exchange a refresh token for new tokens
+	//
+	// The refresh token is single-use. Reusing one ends its session.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+	RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe Get the current user
 	//
 	// Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -419,6 +523,129 @@ func (c *Client) GetHealthz(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with GET /readyz (the `GetReadyz` operationId).
 func (c *Client) GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetReadyzRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LoginWithBody Log in with email and password
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/login (the `Login` operationId).
+func (c *Client) LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Login Log in with email and password
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/login (the `Login` operationId).
+func (c *Client) Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LogoutWithBody End the session of a refresh token
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+func (c *Client) LogoutWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLogoutRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Logout End the session of a refresh token
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+func (c *Client) Logout(ctx context.Context, body LogoutJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLogoutRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LogoutAll End every session of the current user
+//
+// Also invalidates every access token issued so far.
+//
+// Corresponds with POST /v1/auth/logout-all (the `LogoutAll` operationId).
+func (c *Client) LogoutAll(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLogoutAllRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RefreshTokenWithBody Exchange a refresh token for new tokens
+//
+// The refresh token is single-use. Reusing one ends its session.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+func (c *Client) RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RefreshToken Exchange a refresh token for new tokens
+//
+// The refresh token is single-use. Reusing one ends its session.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshTokenRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -649,6 +876,153 @@ func NewGetReadyzRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewLoginRequest calls the generic Login builder with application/json body
+func NewLoginRequest(server string, body LoginJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLoginRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewLoginRequestWithBody constructs an http.Request for the Login method, with any body, and a specified content type
+func NewLoginRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/login")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewLogoutRequest calls the generic Logout builder with application/json body
+func NewLogoutRequest(server string, body LogoutJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLogoutRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewLogoutRequestWithBody constructs an http.Request for the Logout method, with any body, and a specified content type
+func NewLogoutRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/logout")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewLogoutAllRequest constructs an http.Request for the LogoutAll method
+func NewLogoutAllRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/logout-all")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRefreshTokenRequest calls the generic RefreshToken builder with application/json body
+func NewRefreshTokenRequest(server string, body RefreshTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRefreshTokenRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRefreshTokenRequestWithBody constructs an http.Request for the RefreshToken method, with any body, and a specified content type
+func NewRefreshTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/refresh")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1046,6 +1420,61 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyzWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReadyzResponse, error)
 
+	// LoginWithBodyWithResponse Log in with email and password
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/login (the `Login` operationId).
+	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error)
+
+	// LoginWithResponse Log in with email and password
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/login (the `Login` operationId).
+	LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginResponse, error)
+
+	// LogoutWithBodyWithResponse End the session of a refresh token
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+	LogoutWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LogoutResponse, error)
+
+	// LogoutWithResponse End the session of a refresh token
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+	LogoutWithResponse(ctx context.Context, body LogoutJSONRequestBody, reqEditors ...RequestEditorFn) (*LogoutResponse, error)
+
+	// LogoutAllWithResponse End every session of the current user
+	//
+	// Also invalidates every access token issued so far.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/logout-all (the `LogoutAll` operationId).
+	LogoutAllWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutAllResponse, error)
+
+	// RefreshTokenWithBodyWithResponse Exchange a refresh token for new tokens
+	//
+	// The refresh token is single-use. Reusing one ends its session.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+	RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
+
+	// RefreshTokenWithResponse Exchange a refresh token for new tokens
+	//
+	// The refresh token is single-use. Reusing one ends its session.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+	RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
+
 	// GetMeWithResponse Get the current user
 	//
 	// Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -1208,6 +1637,226 @@ func (r GetReadyzResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetReadyzResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LoginResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TokenResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r LoginResponse) GetJSON200() *TokenResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r LoginResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r LoginResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r LoginResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r LoginResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LoginResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LoginResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LoginResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LogoutResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r LogoutResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r LogoutResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r LogoutResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LogoutResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LogoutResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LogoutResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LogoutAllResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r LogoutAllResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r LogoutAllResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r LogoutAllResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LogoutAllResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LogoutAllResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LogoutAllResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RefreshTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TokenResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RefreshTokenResponse) GetJSON200() *TokenResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RefreshTokenResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RefreshTokenResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r RefreshTokenResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r RefreshTokenResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RefreshTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RefreshTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RefreshTokenResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1713,6 +2362,103 @@ func (c *ClientWithResponses) GetReadyzWithResponse(ctx context.Context, reqEdit
 	return ParseGetReadyzResponse(rsp)
 }
 
+// LoginWithBodyWithResponse Log in with email and password
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/login (the `Login` operationId).
+func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
+	rsp, err := c.LoginWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginResponse(rsp)
+}
+
+// LoginWithResponse Log in with email and password
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/login (the `Login` operationId).
+func (c *ClientWithResponses) LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
+	rsp, err := c.Login(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginResponse(rsp)
+}
+
+// LogoutWithBodyWithResponse End the session of a refresh token
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+func (c *ClientWithResponses) LogoutWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LogoutResponse, error) {
+	rsp, err := c.LogoutWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLogoutResponse(rsp)
+}
+
+// LogoutWithResponse End the session of a refresh token
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/logout (the `Logout` operationId).
+func (c *ClientWithResponses) LogoutWithResponse(ctx context.Context, body LogoutJSONRequestBody, reqEditors ...RequestEditorFn) (*LogoutResponse, error) {
+	rsp, err := c.Logout(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLogoutResponse(rsp)
+}
+
+// LogoutAllWithResponse End every session of the current user
+//
+// Also invalidates every access token issued so far.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/logout-all (the `LogoutAll` operationId).
+func (c *ClientWithResponses) LogoutAllWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutAllResponse, error) {
+	rsp, err := c.LogoutAll(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLogoutAllResponse(rsp)
+}
+
+// RefreshTokenWithBodyWithResponse Exchange a refresh token for new tokens
+//
+// The refresh token is single-use. Reusing one ends its session.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+func (c *ClientWithResponses) RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error) {
+	rsp, err := c.RefreshTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshTokenResponse(rsp)
+}
+
+// RefreshTokenWithResponse Exchange a refresh token for new tokens
+//
+// The refresh token is single-use. Reusing one ends its session.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
+func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error) {
+	rsp, err := c.RefreshToken(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshTokenResponse(rsp)
+}
+
 // GetMeWithResponse Get the current user
 //
 // Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -1904,6 +2650,172 @@ func ParseGetReadyzResponse(rsp *http.Response) (*GetReadyzResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLoginResponse parses an HTTP response from a LoginWithResponse call
+func ParseLoginResponse(rsp *http.Response) (*LoginResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LoginResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLogoutResponse parses an HTTP response from a LogoutWithResponse call
+func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LogoutResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLogoutAllResponse parses an HTTP response from a LogoutAllWithResponse call
+func ParseLogoutAllResponse(rsp *http.Response) (*LogoutAllResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LogoutAllResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRefreshTokenResponse parses an HTTP response from a RefreshTokenWithResponse call
+func ParseRefreshTokenResponse(rsp *http.Response) (*RefreshTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RefreshTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
@@ -2288,6 +3200,18 @@ type ServerInterface interface {
 	// GetReadyz Readiness probe
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
+	// Login Log in with email and password
+	// (POST /v1/auth/login)
+	Login(w http.ResponseWriter, r *http.Request)
+	// Logout End the session of a refresh token
+	// (POST /v1/auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request)
+	// LogoutAll End every session of the current user
+	// (POST /v1/auth/logout-all)
+	LogoutAll(w http.ResponseWriter, r *http.Request)
+	// RefreshToken Exchange a refresh token for new tokens
+	// (POST /v1/auth/refresh)
+	RefreshToken(w http.ResponseWriter, r *http.Request)
 	// GetMe Get the current user
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -2339,6 +3263,62 @@ func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadyz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Login(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LogoutAll operation middleware
+func (siw *ServerInterfaceWrapper) LogoutAll(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LogoutAll(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshToken(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2687,6 +3667,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealthz)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout", wrapper.Logout)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout-all", wrapper.LogoutAll)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/refresh", wrapper.RefreshToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users", wrapper.CreateUser)
@@ -2703,43 +3687,49 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"sMf6bP1HAAAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
