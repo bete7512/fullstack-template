@@ -40,10 +40,13 @@ COMPOSE        := docker compose --profile core
 SERVICE ?= api
 SVC     := services/$(SERVICE)
 MIGRATE := go run ./$(SVC)/cmd/api -m migrate
+# Image build: TARGET picks cmd/<TARGET> of SERVICE; GIT_SHA tags the image and the OCI revision label.
+TARGET  ?= api
+GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 .PHONY: help setup dev run-api run-worker db-up db-down db-reset \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
-        gen gen-openapi gen-proto gen-mocks gen-check build \
+        gen gen-openapi gen-proto gen-mocks gen-check build image images \
         migrate-up migrate-down migrate-status
 
 help: ## Show this help
@@ -155,4 +158,14 @@ migrate-down: ## Roll back the most recent migration
 
 migrate-status: ## Show applied / pending migrations
 	$(MIGRATE) status
+
+## Images
+
+image: ## Build the OCI image of SERVICE/TARGET from its own Dockerfile (make image TARGET=worker)
+	docker build -f $(SVC)/cmd/$(TARGET)/Dockerfile --build-arg GIT_SHA=$(GIT_SHA) \
+		-t scaffold-$(SERVICE)-$(TARGET):$(GIT_SHA) -t scaffold-$(SERVICE)-$(TARGET):latest .
+
+images: ## Build api and worker images for SERVICE
+	$(MAKE) image TARGET=api
+	$(MAKE) image TARGET=worker
 

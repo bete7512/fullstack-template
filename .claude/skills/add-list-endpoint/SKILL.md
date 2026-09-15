@@ -222,7 +222,7 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request, params op
 
 **Service**: a table of `{name, opts, setup, wantStatus, wantFields}`. Valid opts expect `ListProjects` then `CountProjects` with the same `opts`. 422 cases expect no repo call: `Limit: 0` / `Offset: -1` → `limit`, `offset`; `SortBy: "secret", SortDir: "sideways"` → `sort_by`, `sort_dir`. Add List and Count failure cases → 500.
 
-**Handler**: `TestEndpoints` rows `list` (expects `repos.ListProjectsOpts{Limit: 20}`), `list with params` (`?limit=5&offset=10&search=x`), `list sorted` (`?sort_by=name&sort_dir=desc` → `{Limit: 20, SortBy: "name", SortDir: "desc"}`), and `list bad limit` (`?limit=abc` → 400). Add a `TestListProjectsResponse` that decodes `openapi.ProjectList`.
+**Handler**: `projects_test.go` `endpointCase` rows `list` (expects `repos.ListProjectsOpts{Limit: 20}`), `list with params` (`?limit=5&offset=10&search=x`), `list sorted` (`?sort_by=name&sort_dir=desc` → `{Limit: 20, SortBy: "name", SortDir: "desc"}`), and `list bad limit` (`?limit=abc` → 400). Add a `TestListProjectsResponse` that decodes `openapi.ProjectList`.
 
 ## Common mistakes
 

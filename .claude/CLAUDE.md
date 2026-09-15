@@ -26,8 +26,9 @@ The api binary runs migrations itself: `api -m migrate <goose cmd>` (`up`, `down
 | `gen-check` | hashes generated files under `services/`, runs `make gen`, fails if anything changed (no git needed) |
 | `lint` / `lint-openapi` / `fmt` / `vet` | golangci-lint / kin-openapi validate (`SERVICE`) / gofmt+goimports / go vet |
 | `test` | `go test -race ./...` (no Docker) |
-| `test-integration` | same with `-tags integration` (testcontainers or `TEST_DATABASE_URL`) |
+| `test-integration` | same with `-tags integration`; testcontainers, or with `TEST_DATABASE_URL` each package creates and drops its own `test_<hash>` database on that server |
 | `test-cover` / `tidy` / `vuln` | coverage html / go mod tidy / govulncheck |
+| `image` / `images` | `docker build -f services/$(SERVICE)/cmd/$(TARGET)/Dockerfile .` (`make image TARGET=worker`) / both binaries; tags `scaffold-<service>-<target>:<git sha>` |
 
 ## Layout
 
@@ -36,6 +37,7 @@ A service = a business area that owns its data; its processes live inside it.
 ```
 services/api/                        the current service (users); future ones copy this shape (e.g. services/billing)
   cmd/api/main.go                    HTTP process: config → app.NewCore → handlers → server (or -m migrate)
+  cmd/<target>/Dockerfile            image for that binary; build context is the repo root
   cmd/worker/main.go                 background process: config → app.NewCore → waits for SIGTERM (job handlers Day 9)
   internal/app/core.go               composition root shared by this service's binaries: pool, repos, hasher, tokens, services
   internal/config/                   service config: embeds pkg/config.Config, adds Auth (AUTH_ARGON2_*, AUTH_JWT_SIGNING_KEY, AUTH_ISSUER, AUTH_*_TOKEN_TTL)
@@ -61,7 +63,7 @@ go.mod                one module; per-service go.mod + go.work when a second ser
 
 Import paths: `github.com/bete7512/scaffold/services/api/internal/<pkg>`, `.../services/api/migrations`, `.../services/api/gen/openapi`.
 
-Planned, absent: `services/api/internal/jobs` (worker event handlers, Day 9), Dockerfile (Day 5, one file with `TARGET` build arg), `infra/`, `deploy/`, proto contracts, `apps/web`.
+Planned, absent: `services/api/internal/jobs` (worker event handlers, Day 9), `infra/`, ECS task definitions, proto contracts, `apps/web`.
 
 ## Services and split-readiness
 
@@ -127,7 +129,7 @@ Wiring a new resource `Project`:
 1. `services/api/internal/app/core.go`: add `Projects services.ProjectService` to `Core`.
 2. `core.go`: `projectRepo, err := repos.NewProjectRepo(pool)`, then `services.NewProjectService(services.ProjectServiceDeps{Projects: projectRepo, Logger: d.Logger})` → `Core.Projects`.
 3. `services/api/internal/handlers/handler.go`: add `Projects services.ProjectService` to `Deps` and to the nil check in `New`.
-4. `services/api/cmd/api/main.go`: pass `Projects: core.Projects` in `handlers.Deps{...}`; update `newFixture` in `handler_test.go`.
+4. `services/api/cmd/api/main.go`: pass `Projects: core.Projects` in `handlers.Deps{...}`; update `newFixture` in `handler_test.go`; add `projects_test.go` with `runEndpoints(t, []endpointCase{...})`.
 5. Worker needs it: read `core.Projects` in `services/api/cmd/worker/main.go`.
 
 ## Errors (`pkg/apperr`)
@@ -189,7 +191,7 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
    - Component names must be unique across all files: the bundler names each by its last pointer segment, so duplicates collide.
 2. New path file/route → add under `paths:` in `services/api/openapi/openapi.yaml`.
 3. Every error response `$ref`s `components/responses.yaml` (`BadRequest, ValidationFailed, Unauthorized, NotFound, Conflict, Unavailable, InternalError`).
-4. Public ops set `security: []`; protected ops list `bearerAuth` and `cookieAuth`. Enforced by `handlers/authn.go`. An op that omits `security` requires login (fail closed), and `TestEveryOperationDeclaresSecurity` fails the build until it declares one.
+4. Public ops set `security: []`; protected ops list `bearerAuth` and `cookieAuth`. A public op must also be added to `publicOperations` in `handlers/authn_test.go` (ids as the embedded spec spells them, e.g. `CreateUser`); Every protected case in the resource's test table (`users_test.go`, `auth_test.go`, …) sets `auth: true`, which first sends the same request without a token and requires 401. Enforced by `handlers/authn.go`. An op that omits `security` requires login (fail closed), and `TestEveryOperationDeclaresSecurity` fails the build until it declares one.
 5. `make gen-openapi` (optionally `make lint-openapi`; both take `SERVICE=`) regenerates `services/api/gen/openapi`; build fails until `Handler` implements the new method.
 - Non-strict server (`strict-server: false`): handler owns decode/write.
 - `format: email` generates `string`; email and length validation live in services.
@@ -222,7 +224,7 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
 |---|---|
 | services | `services_test` package, testify `suite`, `repo_mocks.NewMockXRepo(gomock.NewController(s.T()))`, argon2 low params (`Memory: 8*1024, Iterations: 1`), assert `*apperr.AppError.Code`; table of cases where a method has several inputs |
 | repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (`github.com/bete7512/scaffold/services/api/migrations`) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/users_test.go`); no `t.Parallel` |
-| handlers | one `newFixture(t)` with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `auth` mock accepts token `"good"` (→ `ada.ID`); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie); `TestAuthentication` covers missing, invalid, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error` |
+| handlers | tests mirror source files: `handler_test.go` holds only the fixture + `endpointCase`/`runEndpoints`; `users_test.go`, `auth_test.go`, `health_test.go`, `router_test.go`, `authn_test.go` hold that file's cases. One `newFixture(t)` with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `auth` mock accepts token `"good"` (→ `ada.ID`); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie); `TestAuthentication` covers missing, invalid, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error`; each case carries `auth bool` (protected → probed without a token first, expects 401; binding-error cases stay `false`) |
 | pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger`, `pkg/auth`, `pkg/sorting`) |
 
 Shape every test the same way: one test per function or repo method, `tests := []struct{ name; inputs; want; wantErr error }`, `s.Run(tt.name, ...)` per case, then `seed → call → if tt.wantErr != nil { ErrorIs; return } → assert`. Fixtures come from a seeder helper, never copy-pasted setup. Not-found cases use `int64(-1)`; created ids are asserted with `s.Positive(x.ID)`; handler paths use `strconv.FormatInt(id, 10)`.
@@ -278,4 +280,4 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 - Authz (Day 16): `Authorizer` interface, RBAC adapter + OpenFGA adapter.
 - Worker job handlers (`services/api/internal/jobs`), `pkg/events`, outbox, mailer.
 - Observability: OTel, metrics, Sentry/GlitchTip, dashboards, runbooks.
-- Infra: Terraform, Ansible, Dockerfiles/ECS, gRPC (`gen-proto` is a stub).
+- Infra: Terraform, Ansible, ECS deploy workflow, gRPC (`gen-proto` is a stub). Built: one Dockerfile per binary next to its `main.go` (`services/api/cmd/{api,worker}/Dockerfile`, distroless, non-root, built from the repo root) and `.github/workflows/ci.yml` (lint, gen-check, unit + integration against a Postgres service, govulncheck, image build + Trivy).

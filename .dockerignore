@@ -1,0 +1,13 @@
+# Only go.mod, go.sum, pkg/, services/ and scripts/ are needed to build the images.
+.git
+.dev
+bin
+*.md
+docs
+.claude
+.github
+.env*
+coverage*
+tmp
+infra
+loadtest

@@ -5,6 +5,7 @@ Each folder here is one **service**: a business area that owns its data. The pro
 ```
 services/<name>/
   cmd/api/main.go       HTTP process
+  cmd/api/Dockerfile    its image, built from the repo root
   cmd/worker/main.go    background jobs(or any helper pro)
   internal/             code shared by this service's processes
   migrations/           this service's schema

@@ -12,6 +12,7 @@ A Go backend template for building production services: a spec-first HTTP API on
 - **Logging:** one structured log line per request, with the error attached when a request fails.
 - **Database:** Go migrations compiled into the binary.
 - **Tests:** unit tests with mocks, and integration tests against a real Postgres.
+- **Shipping:** one distroless, non-root Docker image per binary, and a GitHub Actions pipeline that lints, checks generated code, runs unit and integration tests, scans for vulnerabilities and builds the images.
 
 Planned next: rate limiting, email verification and password reset, Google login, authorization, background jobs, observability, a Next.js frontend, and deployment to AWS ECS with Terraform.
 
@@ -41,7 +42,7 @@ make migrate-up   # create the tables
 make run-api      # serve on http://localhost:8080, docs at /docs
 ```
 
-The API won't start without `AUTH_JWT_SIGNING_KEY`. `.env.example` has a dev key; generate a real one with `openssl rand -base64 32`.
+The API won't start without `AUTH_JWT_SIGNING_KEY` in `.env`. Generate one with `openssl rand -base64 32`.
 
 Try it (needs `jq`):
 
@@ -106,6 +107,7 @@ The full checklist is in [`.claude/CLAUDE.md`](.claude/CLAUDE.md).
 | `make test` | Run unit tests |
 | `make test-integration` | Run tests against Postgres (needs Docker) |
 | `make gen-check` | Fail if generated code is out of date |
+| `make images` | Build the api and worker Docker images |
 | `make help` | List every target |
 
 Commands that act on a service default to `services/api`. Pick another with `SERVICE=<name>`.

@@ -4,7 +4,10 @@ package testutil
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -23,6 +26,7 @@ var (
 	pool      *pgxpool.Pool
 	container *tcpostgres.PostgresContainer
 	setupErr  error
+	dropDB    func() // drops the per-package database created from TEST_DATABASE_URL
 )
 
 // MigrateFunc applies a service's migrations, e.g. migrations.Up.
@@ -47,6 +51,9 @@ func Main(m *testing.M) int {
 	if pool != nil {
 		pool.Close()
 	}
+	if dropDB != nil {
+		dropDB()
+	}
 	if container != nil {
 		_ = testcontainers.TerminateContainer(container)
 	}
@@ -66,8 +73,14 @@ func setup(migrate MigrateFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn != "" {
+		var err error
+		if dsn, err = createPackageDatabase(ctx, dsn); err != nil {
+			setupErr = err
+			return
+		}
+	} else {
 		c, err := tcpostgres.Run(ctx, "postgres:16-alpine",
 			tcpostgres.WithDatabase("scaffold_test"),
 			tcpostgres.WithUsername("scaffold"),
@@ -79,13 +92,13 @@ func setup(migrate MigrateFunc) {
 			return
 		}
 		container = c
-		if url, err = c.ConnectionString(ctx, "sslmode=disable"); err != nil {
+		if dsn, err = c.ConnectionString(ctx, "sslmode=disable"); err != nil {
 			setupErr = fmt.Errorf("connection string: %w", err)
 			return
 		}
 	}
 
-	p, err := db.NewPool(ctx, db.Config{URL: url, MaxConns: 8, MinConns: 1})
+	p, err := db.NewPool(ctx, db.Config{URL: dsn, MaxConns: 8, MinConns: 1})
 	if err != nil {
 		setupErr = err
 		return
@@ -100,4 +113,35 @@ func setup(migrate MigrateFunc) {
 		return
 	}
 	pool = p
+}
+
+// createPackageDatabase creates a database for this test binary on the server at baseURL,
+// so packages testing in parallel never share one, and returns the URL to it.
+func createPackageDatabase(ctx context.Context, baseURL string) (string, error) {
+	sum := sha256.Sum256([]byte(os.Args[0]))
+	name := "test_" + hex.EncodeToString(sum[:6])
+
+	admin, err := pgxpool.New(ctx, baseURL)
+	if err != nil {
+		return "", err
+	}
+	if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name); err != nil {
+		admin.Close()
+		return "", err
+	}
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		admin.Close()
+		return "", err
+	}
+	dropDB = func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name)
+		admin.Close()
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/" + name
+	return u.String(), nil
 }

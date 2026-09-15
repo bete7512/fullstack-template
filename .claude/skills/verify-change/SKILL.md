@@ -20,7 +20,7 @@ Never claim done with a red or skipped-but-relevant gate.
 | 7 | repos, migrations, `pkg/db`, `pkg/testutil` touched | `make test-integration` | all `ok` |
 | 8 | always | `make gen-check` | exit 0 |
 
-- 7 needs Docker: testcontainers starts `postgres:16-alpine` unless `TEST_DATABASE_URL` is set.
+- 7 needs Docker: testcontainers starts `postgres:16-alpine` unless `TEST_DATABASE_URL` is set, in which case each package creates its own database on that server (needs CREATEDB, e.g. the superuser) and drops it after.
 - 8: `gen-check` hashes generated files under `services/`, runs `make gen`, and fails if anything changed.
   A failure means generated code was stale; it has been regenerated, so review the diff. Never stage or commit to make it pass.
 - Migrations additionally: `make migrate-up && make migrate-down && make migrate-up` (see `add-migration`).
@@ -34,8 +34,8 @@ Run when an endpoint, middleware, error mapping, or migration changed. Edit `POR
 cd "$(git rev-parse --show-toplevel)"
 set -a; source <(sed -E 's/[[:space:]]+#.*$//' .env); set +a   # strip inline comments
 echo "db: $POSTGRES_USER@localhost:$POSTGRES_PORT/$POSTGRES_DB"  # read, don't assume scaffold/5433
-# required at boot (also for migrate); an older .env may lack it, so fall back to the dev key in .env.example
-export AUTH_JWT_SIGNING_KEY="${AUTH_JWT_SIGNING_KEY:-$(sed -nE 's/^AUTH_JWT_SIGNING_KEY=([^[:space:]]+).*/\1/p' .env.example)}"
+# required at boot (also for migrate); .env.example ships it empty, so generate a throwaway key when unset
+export AUTH_JWT_SIGNING_KEY="${AUTH_JWT_SIGNING_KEY:-$(openssl rand -base64 32)}"
 SERVICE=api
 make db-up && make migrate-up SERVICE=$SERVICE && make build SERVICE=$SERVICE
 PORT=18080; LOG=$(mktemp)

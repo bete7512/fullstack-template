@@ -1,0 +1,115 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Cancel superseded runs of the same PR/branch; never cancel a run on main.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  OAPI_CODEGEN_VERSION: v2.8.0
+  MOCKGEN_VERSION: v0.6.0
+  GOVULNCHECK_VERSION: latest
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./... && go vet -tags integration ./...
+      # The integration tag is a superset: untagged files are always in the build set.
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.6.2
+          args: --build-tags integration ./...
+
+  gen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install generators
+        run: |
+          go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}
+          go install go.uber.org/mock/mockgen@${MOCKGEN_VERSION}
+      - run: make gen-check
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scaffold_test
+          POSTGRES_PASSWORD: scaffold_test
+          POSTGRES_DB: scaffold_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scaffold_test -d scaffold_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make test
+      - run: make test-integration
+        env:
+          TEST_DATABASE_URL: postgres://scaffold_test:scaffold_test@localhost:5432/scaffold_test?sslmode=disable
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+      - run: make vuln
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    strategy:
+      matrix:
+        target: [api, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/cmd/${{ matrix.target }}/Dockerfile
+          push: false
+          load: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: scaffold-api-${{ matrix.target }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: scaffold-api-${{ matrix.target }}:ci
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true

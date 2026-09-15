@@ -1,6 +1,6 @@
 module github.com/bete7512/scaffold
 
-go 1.26.4
+go 1.26.6
 
 require (
 	github.com/caarlos0/env/v11 v11.4.1
