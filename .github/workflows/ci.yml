@@ -107,7 +107,7 @@ jobs:
           tags: scaffold-api-${{ matrix.target }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: aquasecurity/trivy-action@v0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: scaffold-api-${{ matrix.target }}:ci
           severity: CRITICAL,HIGH
