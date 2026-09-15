@@ -79,7 +79,7 @@ Nullable or `NOT NULL DEFAULT <constant>` is metadata-only (PG11+). A volatile d
 
 ### C. Index on an existing table (NoTx)
 
-The scaffold generates `AddMigrationContext` + `*sql.Tx`. Change **both** — `CONCURRENTLY`
+A copied migration uses `AddMigrationContext` + `*sql.Tx`. Change **both** — `CONCURRENTLY`
 cannot run inside a transaction. One statement per NoTx migration (no atomicity to lean on).
 
 ```go

@@ -1,12 +1,3 @@
-# Local infrastructure. Profiles:
-#   core     — postgres (default; `make db-up`)
-#   obs      — grafana, loki, victoriametrics, tempo, alloy, glitchtip   (day 21+)
-#   openfga  — openfga + its postgres                                    (day 16)
-#   nats     — nats-server for the events NATS adapter                   (day 8+)
-#
-# Services are added to their profile the day they are built; an empty profile is not
-# declared here so `docker compose --profile x up` fails loudly instead of doing nothing.
-
 name: scaffold
 
 services:

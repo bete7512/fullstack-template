@@ -55,5 +55,4 @@ func (s *service) Run(ctx context.Context, pool *pgxpool.Pool, args []string) er
 // registerMigrations lists every migration in order.
 func (s *service) registerMigrations() {
 	s.registerMigration_0001_CreateUsers()
-	s.registerMigration_0002_AddUsersCreatedAtIndex()
 }

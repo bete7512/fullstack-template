@@ -190,7 +190,7 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
 - Implement both `up_` and `down_`; check `make migrate-up && make migrate-down && make migrate-up` (add `SERVICE=<name>` for another service).
 - New table: `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`; FK columns `BIGINT`.
 - New table with `updated_at`: `CREATE TRIGGER update_<table>_updated_at BEFORE UPDATE ON <table> FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();` (function from 0001).
-- Index on existing table: `goose.AddMigrationNoTxContext` with `*sql.DB` and `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (see 0002).
+- Index on existing table: `goose.AddMigrationNoTxContext` with `*sql.DB` and `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (template in the `add-migration` skill). Indexes on a table created in the same migration are plain `CREATE INDEX`.
 - Expand/contract: add → deploy code → backfill → drop. Never rename or drop a column the running code reads.
 - Update `models` `db` tags and repo column consts in the same change.
 - Never run migrations at boot in prod; deploy runs `api -m migrate up` as a one-off task.

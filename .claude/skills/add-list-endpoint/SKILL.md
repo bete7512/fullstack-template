@@ -9,7 +9,7 @@ Convention (ADR 0017, `docs/adr/0017-offset-list-opts.md`): offset pagination pl
 
 ## Steps
 
-1. **Index** (large tables only): the default order `id ASC` uses the primary key. For a sort column that big tables are sorted by, run the `add-migration` skill to add `CREATE INDEX CONCURRENTLY IF NOT EXISTS projects_name_id_idx ON projects (name, id)` in a `goose.AddMigrationNoTxContext` migration. Copy `services/api/migrations/0002_add_users_created_at_index.go`.
+1. **Index** (large tables only): the default order `id ASC` uses the primary key. For a sort column that big tables are sorted by, run the `add-migration` skill to add `CREATE INDEX CONCURRENTLY IF NOT EXISTS projects_name_id_idx ON projects (name, id)` in a `goose.AddMigrationNoTxContext` migration. Use the concurrent-index template in the `add-migration` skill.
 2. **Spec**: add a `get` (`operationId: listProjects`) to the collection path item with inline `limit`, `offset`, `search`, `sort_by` (enum) and `sort_dir` parameters copied from `listUsers` in `paths/users.yaml`. Add a `ProjectList` schema under `components: schemas:` in `paths/projects.yaml` (not `components/`) by copying `UserList`: `required: [items, total]`, `items` an array of `$ref: '#/components/schemas/Project'`, `total` an integer. Run `make lint-openapi && make gen-openapi`.
 3. **Model + repo**: add `ProjectForList` to `models/project.go` with the same `db:` tags, holding only the columns the DTO shows (no secrets or hashes). Add `ListProjectsOpts`, `ProjectSortColumns`, `ListProjects` and `CountProjects` to the repo, and the methods to the `ProjectRepo` interface.
 4. **Service + handler**: `ListProjects(ctx, opts) ([]models.ProjectForList, int, error)` and `ListProjects(w, r, params openapi.ListProjectsParams)`.
