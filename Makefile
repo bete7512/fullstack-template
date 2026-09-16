@@ -34,17 +34,18 @@ MODULE         := github.com/bete7512/scaffold
 # Falls back to the compose `core` profile Postgres when .env is absent.
 DATABASE_URL   ?= postgres://scaffold:scaffold@localhost:5433/scaffold?sslmode=disable
 COMPOSE        := docker compose --profile core
+COMPOSE_QUEUE  := docker compose --profile queue
 
 # Migrations are Go files compiled into the api binary (migrations/), run through
 # `api -m migrate <goose command>` — the same image runs them as a one-off ECS task.
-SERVICE ?= api
-SVC     := services/$(SERVICE)
+APP ?= api
+SVC     := apps/$(APP)
 MIGRATE := go run ./$(SVC)/cmd/api -m migrate
-# Image build: TARGET picks cmd/<TARGET> of SERVICE; GIT_SHA tags the image and the OCI revision label.
+# Image build: TARGET picks cmd/<TARGET> of APP; GIT_SHA tags the image and the OCI revision label.
 TARGET  ?= api
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup dev run-api run-worker db-up db-down db-reset \
+.PHONY: help setup dev run-api run-worker db-up db-down db-reset queue-up queue-down queue-logs \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-check build image images \
         migrate-up migrate-down migrate-status
@@ -77,9 +78,9 @@ run-api: ## Run the API service from source
 run-worker: ## Run the worker from source
 	go run ./$(SVC)/cmd/worker
 
-build: ## Build the api and worker binaries of SERVICE into bin/
-	go build -o bin/$(SERVICE)/api ./$(SVC)/cmd/api
-	go build -o bin/$(SERVICE)/worker ./$(SVC)/cmd/worker
+build: ## Build the api and worker binaries of APP into bin/
+	go build -o bin/$(APP)/api ./$(SVC)/cmd/api
+	go build -o bin/$(APP)/worker ./$(SVC)/cmd/worker
 
 ## Local infrastructure
 
@@ -92,6 +93,17 @@ db-down: ## Stop Postgres (data volume is kept)
 db-reset: ## Destroy the Postgres volume and start fresh
 	$(COMPOSE) down -v
 	$(MAKE) db-up
+
+## Queue
+
+queue-up: ## Start LocalStack (SNS+SQS) and Mailpit (compose `queue` profile) and wait until healthy
+	$(COMPOSE_QUEUE) up -d --wait
+
+queue-down: ## Stop LocalStack and Mailpit
+	$(COMPOSE_QUEUE) down
+
+queue-logs: ## Follow LocalStack and Mailpit logs
+	$(COMPOSE_QUEUE) logs -f
 
 ## Quality gates
 
@@ -130,7 +142,7 @@ gen: gen-openapi gen-proto gen-mocks ## Regenerate all generated code
 
 # Two steps: bundle $(SVC)/openapi/** into one document (oapi-codegen v2.8 cannot generate a
 # single package from external path items; see scripts/openapi-bundle), then generate.
-gen-openapi: ## Bundle and generate the OpenAPI code of SERVICE
+gen-openapi: ## Bundle and generate the OpenAPI code of APP
 	go run ./scripts/openapi-bundle -in $(SVC)/openapi/openapi.yaml -out $(SVC)/gen/openapi/openapi.bundle.yaml
 	oapi-codegen -config $(SVC)/openapi/oapi-codegen.yaml -o $(SVC)/gen/openapi/openapi.gen.go $(SVC)/gen/openapi/openapi.bundle.yaml
 
@@ -141,9 +153,9 @@ gen-mocks: ## Regenerate mockgen mocks (//go:generate directives next to each in
 	go generate ./...
 
 gen-check: ## Fail if regenerating changes any generated file (no git needed)
-	@before=$$(find services -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	@before=$$(find apps -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	$(MAKE) --no-print-directory gen >/dev/null; \
-	after=$$(find services -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	after=$$(find apps -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	if [ "$$before" != "$$after" ]; then echo "generated code was stale and has been regenerated; review the diff" >&2; exit 1; fi
 
 ## Migrations (local only)
@@ -161,11 +173,11 @@ migrate-status: ## Show applied / pending migrations
 
 ## Images
 
-image: ## Build the OCI image of SERVICE/TARGET from its own Dockerfile (make image TARGET=worker)
+image: ## Build the OCI image of APP/TARGET from its own Dockerfile (make image TARGET=worker)
 	docker build -f $(SVC)/cmd/$(TARGET)/Dockerfile --build-arg GIT_SHA=$(GIT_SHA) \
-		-t scaffold-$(SERVICE)-$(TARGET):$(GIT_SHA) -t scaffold-$(SERVICE)-$(TARGET):latest .
+		-t scaffold-$(APP)-$(TARGET):$(GIT_SHA) -t scaffold-$(APP)-$(TARGET):latest .
 
-images: ## Build api and worker images for SERVICE
+images: ## Build api and worker images for APP
 	$(MAKE) image TARGET=api
 	$(MAKE) image TARGET=worker
 

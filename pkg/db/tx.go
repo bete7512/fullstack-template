@@ -60,3 +60,21 @@ func WithTxOptions(ctx context.Context, pool *pgxpool.Pool, opts pgx.TxOptions, 
 	}
 	return nil
 }
+
+// Transactor runs fn inside a transaction; services depend on it instead of the pool.
+type Transactor interface {
+	WithTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error
+}
+
+type poolTransactor struct {
+	pool *pgxpool.Pool
+}
+
+// NewTransactor returns a Transactor backed by pool.
+func NewTransactor(pool *pgxpool.Pool) Transactor {
+	return poolTransactor{pool: pool}
+}
+
+func (p poolTransactor) WithTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return WithTx(ctx, p.pool, fn)
+}

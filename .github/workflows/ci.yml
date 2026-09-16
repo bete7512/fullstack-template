@@ -72,9 +72,19 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: make test
+      # LocalStack needs the init script from the checkout, so it comes from compose rather than a service container.
+      - run: docker compose --profile queue up -d --wait localstack
       - run: make test-integration
         env:
           TEST_DATABASE_URL: postgres://scaffold_test:scaffold_test@localhost:5432/scaffold_test?sslmode=disable
+          EVENTS_AWS_ENDPOINT_URL: http://localhost:4566
+          EVENTS_AWS_REGION: us-east-1
+          EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:scaffold-events
+          EVENTS_QUEUE_URL: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/scaffold-worker
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+      - if: always()
+        run: docker compose --profile queue down -v
 
   vuln:
     runs-on: ubuntu-latest
@@ -99,7 +109,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: services/api/cmd/${{ matrix.target }}/Dockerfile
+          file: apps/api/cmd/${{ matrix.target }}/Dockerfile
           push: false
           load: true
           build-args: |

@@ -25,5 +25,31 @@ services:
       - -c
       - max_connections=100
 
+  # SNS + SQS stand-ins for the events transport; deploy/localstack/init.sh creates the topic and queues.
+  localstack:
+    image: localstack/localstack:4.9
+    profiles: [queue]
+    environment:
+      SERVICES: sns,sqs
+      DEBUG: 0
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./deploy/localstack/init.sh:/etc/localstack/init/ready.d/init.sh:ro
+    # Healthy only once the init script has run, so `up --wait` returns with the topic and queues in place.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health && curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  # SMTP sink with a web inbox on :8025 for the mailer.
+  mailpit:
+    image: axllent/mailpit:v1.28
+    profiles: [queue]
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   postgres-data:

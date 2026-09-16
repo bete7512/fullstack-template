@@ -25,7 +25,15 @@ linters:
     - gosec
     - copyloopvar    # Go 1.22+ per-iteration loop vars make the old copy redundant
     - testifylint
+    - depguard       # pkg/ stays domain-free: may not import apps/
   settings:
+    depguard:
+      rules:
+        pkg-domain-free:
+          files: ["$all", "!**/apps/**", "!**/scripts/**"]
+          deny:
+            - pkg: github.com/bete7512/scaffold/apps
+              desc: pkg/ is domain-free; it must not import app code
     govet:
       enable:
         - nilness
@@ -58,7 +66,7 @@ linters:
       - path: _test\.go
         linters: [errcheck, gosec, gocritic]
     paths:
-      - services/.*/gen/
+      - apps/.*/gen/
 
 formatters:
   enable:
@@ -71,7 +79,7 @@ formatters:
   exclusions:
     generated: lax
     paths:
-      - services/.*/gen/
+      - apps/.*/gen/
 
 issues:
   max-issues-per-linter: 0

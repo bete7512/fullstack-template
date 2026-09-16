@@ -11,8 +11,8 @@ Never claim done with a red or skipped-but-relevant gate.
 
 | # | When | Command | Green |
 |---|---|---|---|
-| 1 | spec under `services/api/openapi/` touched | `make lint-openapi && make gen-openapi` (`SERVICE=<name>` for another service) | exit 0; `services/api/gen/openapi/*` updated |
-| 2 | an interface with `//go:generate` changed | `go generate ./services/api/internal/...` | exit 0; `mock_*.go` updated |
+| 1 | spec under `apps/api/openapi/` touched | `make lint-openapi && make gen-openapi` (`APP=<name>` for another app) | exit 0; `apps/api/gen/openapi/*` updated |
+| 2 | an interface with `//go:generate` changed | `go generate ./apps/api/...` | exit 0; `mock_*.go` updated |
 | 3 | always | `make fmt` | exit 0 (may rewrite files) |
 | 4 | always | `go build ./... && go vet ./... && go vet -tags integration ./...` | no output |
 | 5 | always | `make lint && golangci-lint run --build-tags integration ./...` | `0 issues.` twice |
@@ -21,7 +21,7 @@ Never claim done with a red or skipped-but-relevant gate.
 | 8 | always | `make gen-check` | exit 0 |
 
 - 7 needs Docker: testcontainers starts `postgres:16-alpine` unless `TEST_DATABASE_URL` is set, in which case each package creates its own database on that server (needs CREATEDB, e.g. the superuser) and drops it after.
-- 8: `gen-check` hashes generated files under `services/`, runs `make gen`, and fails if anything changed.
+- 8: `gen-check` hashes generated files under `apps/`, runs `make gen`, and fails if anything changed.
   A failure means generated code was stale; it has been regenerated, so review the diff. Never stage or commit to make it pass.
 - Migrations additionally: `make migrate-up && make migrate-down && make migrate-up` (see `add-migration`).
 - Integration tests are unseen by `go build`/`make lint` without the tag — never skip 4/5's tagged half.
@@ -36,10 +36,10 @@ set -a; source <(sed -E 's/[[:space:]]+#.*$//' .env); set +a   # strip inline co
 echo "db: $POSTGRES_USER@localhost:$POSTGRES_PORT/$POSTGRES_DB"  # read, don't assume scaffold/5433
 # required at boot (also for migrate); .env.example ships it empty, so generate a throwaway key when unset
 export AUTH_JWT_SIGNING_KEY="${AUTH_JWT_SIGNING_KEY:-$(openssl rand -base64 32)}"
-SERVICE=api
-make db-up && make migrate-up SERVICE=$SERVICE && make build SERVICE=$SERVICE
+APP=api
+make db-up && make migrate-up APP=$APP && make build APP=$APP
 PORT=18080; LOG=$(mktemp)
-HTTP_ADDR=":$PORT" LOG_FORMAT=json ./bin/$SERVICE/api >"$LOG" 2>&1 &
+HTTP_ADDR=":$PORT" LOG_FORMAT=json ./bin/$APP/api >"$LOG" 2>&1 &
 API_PID=$!
 for i in $(seq 50); do curl -sf "localhost:$PORT/healthz" >/dev/null && break; sleep 0.2; done
 B="localhost:$PORT"; H='-H Content-Type:application/json'
@@ -76,7 +76,7 @@ make db-down
 
 - Port 5432 is often a host Postgres; compose maps `${POSTGRES_PORT}:5432`. If `make db-up` fails
   on bind or `make migrate-up` hits the wrong server, check `ss -ltnp | grep 543` and `.env`.
-- Take real paths/bodies from `services/api/openapi/paths/*.yaml` (prefix in `services/api/openapi/openapi.yaml`);
+- Take real paths/bodies from `apps/api/openapi/paths/*.yaml` (prefix in `apps/api/openapi/openapi.yaml`);
   the curls above are examples.
 - Protected ops (spec `security` is not `[]`) need `-H "Authorization: Bearer $TOKEN"` from the login above; without it expect `401 UNAUTHORIZED`.
 - Boot fails with `AUTH_JWT_SIGNING_KEY must be base64 of 32 random bytes` if the key export was skipped.
